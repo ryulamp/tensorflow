@@ -279,6 +279,15 @@ def MHLO_LayoutAttr : Attr<
 def MHLO_ArrayOfLayoutAttr : TypedArrayAttrBase<MHLO_LayoutAttr,
     "Array of layout (1D tensor of index type) attributes">;
 
+// A tiling attribute (array of rank 1 tensors).
+// Each tile is a 1D tensor of dimensions.
+def MHLO_TilingAttr : TypedArrayAttrBase<MHLO_LayoutAttr,
+    "Tiling (array of rank 1 tensors)">;
+
+// An array of tiling attributes.
+def MHLO_ArrayOfTilingAttr : TypedArrayAttrBase<MHLO_TilingAttr,
+    "Array of tiling attributes">;
+
 // An array of FlatSymbolRef attributes that can be used as a default valued
 // attribute.
 def MHLO_FlatSymbolRefArrayAttr :

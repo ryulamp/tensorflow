@@ -122,7 +122,23 @@ diff --ruN a/stablehlo/stablehlo/dialect/StablehloAttrs.td b/stablehlo/stablehlo
  include "mlir/IR/TensorEncoding.td"
  include "stablehlo/dialect/StablehloTypes.td"
  
-@@ -275,7 +276,8 @@
+@@ -184,6 +185,15 @@
+ def StableHLO_ArrayOfLayoutAttr : TypedArrayAttrBase<StableHLO_LayoutAttr,
+     "Array of layout (1D tensor of index type) attributes">;
+ 
++// A tiling attribute (array of rank 1 tensors).
++// Each tile is a 1D tensor of dimensions.
++def StableHLO_TilingAttr : TypedArrayAttrBase<StableHLO_LayoutAttr,
++    "TpuTiling (array of rank 1 tensors)">;
++
++// An array of tiling attributes.
++def StableHLO_ArrayOfTilingAttr : TypedArrayAttrBase<StableHLO_TilingAttr,
++    "Array of tiling attributes">;
++
+ // An array of FlatSymbolRef attributes that can be used as a default valued
+ // attribute.
+ def StableHLO_FlatSymbolRefArrayAttr :
+@@ -275,7 +285,8 @@
    }];
  }
  
@@ -283,6 +299,14 @@ diff --ruN a/stablehlo/stablehlo/dialect/StablehloOps.td b/stablehlo/stablehlo/d
      ]> {
    let summary = "CollectiveBroadcast operation";
    let description = [{
+@@ -2631,6 +2636,7 @@
+     DefaultValuedOptionalAttr<StableHLO_FlatSymbolRefArrayAttr, "{}">:$called_computations,
+     OptionalAttr<StableHLO_ArrayOfLayoutAttr>:$operand_layouts,
+     OptionalAttr<StableHLO_ArrayOfLayoutAttr>:$result_layouts,
++    OptionalAttr<StableHLO_ArrayOfTilingAttr>:$result_tilings,
+     DefaultValuedOptionalAttr<
+         TypedArrayAttrBase<
+             StableHLO_OutputOperandAlias,
 diff --ruN a/stablehlo/stablehlo/dialect/Version.h b/stablehlo/stablehlo/dialect/Version.h
 --- stablehlo/stablehlo/dialect/Version.h
 +++ stablehlo/stablehlo/dialect/Version.h
