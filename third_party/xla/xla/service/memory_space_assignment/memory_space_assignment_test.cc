@@ -16721,7 +16721,7 @@ ENTRY entry {
   gte_param0_0 = f32[2,3]{1,0} get-tuple-element(prefetch_start_param0), index=0
   gte_param0_1 = s32[]{:T(128)S(2)} get-tuple-element(prefetch_start_param0), index=1
   prefetch_done_param0 = f32[2,3]{1,0} custom-call(p0, gte_param0_0, gte_param0_1), custom_call_target="tpu_custom_call", output_to_operand_aliasing={{}: (1, {})}
-  
+
   negate0 = f32[2,3]{1,0} negate(prefetch_done_param0)
   negate1 = f32[2,3]{1,0} negate(negate0)
   negate2 = f32[2,3]{1,0} negate(negate1)
@@ -17827,6 +17827,46 @@ TEST_F(MemorySpaceAssignmentTest, ConditionalCommonInputAliasedOutputTest) {
   CheckMemorySpaceForInstructionNames(
       module.get(), {"negate0", "custom_call2", "custom_call0", "custom_call1"},
       kAlternateMemorySpace);
+}
+
+TEST_F(MemorySpaceAssignmentTest, AsyncUpdate) {
+  absl::string_view hlo_string = R"hlo(
+HloModule module, is_scheduled=true
+
+async_computation {
+  p = f32[4]{0} parameter(0)
+  ROOT custom-call = f32[4]{0} custom-call(p), custom_call_target="foo"
+}
+
+ENTRY entry {
+  param = f32[4]{0} parameter(0)
+  negate0 = f32[4]{0} negate(param)
+  async-start = ((f32[4]{0}), f32[4]{0}, s32[]) async-start(negate0), calls=async_computation
+  negate1 = f32[4]{0} negate(param)
+  negate2 = f32[4]{0} negate(negate1)
+  negate3 = f32[4]{0} negate(negate2)
+  async-update = ((f32[4]{0}), f32[4]{0}, s32[]) async-update(async-start), calls=async_computation
+  async-done = f32[4]{0} async-done(async-update), calls=async_computation
+  ROOT add = add(async-done, negate3)
+}
+  )hlo";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  AssignMemorySpace(module.get());
+  HloInstruction* async_start =
+      module->entry_computation()->GetInstructionWithName("async-start");
+  EXPECT_EQ(async_start->shape().tuple_shapes(1).layout().memory_space(),
+            kAlternateMemorySpace);
+
+  HloInstruction* async_update =
+      module->entry_computation()->GetInstructionWithName("async-update");
+  EXPECT_EQ(async_update->shape().tuple_shapes(1).layout().memory_space(),
+            kAlternateMemorySpace);
+
+  HloInstruction* async_done =
+      module->entry_computation()->GetInstructionWithName("async-done");
+  EXPECT_EQ(async_done->shape().layout().memory_space(), kAlternateMemorySpace);
 }
 
 }  // namespace
