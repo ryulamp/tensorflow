@@ -376,11 +376,12 @@ absl::StatusOr<std::unique_ptr<AutotunerPass>> AutotunerPass::Create(
   // 1. Assessing whether to autotune custom calls.
   bool do_not_autotune_cublas =
       debug_options.xla_gpu_experimental_disable_binary_libraries() ||
-      debug_options.xla_gpu_autotune_level() == 0 ||
-      debug_options.xla_gpu_exclude_nondeterministic_ops();
+      debug_options.xla_gpu_autotune_level() == 0;
+  VLOG(1) << "do_not_autotune_cublas: " << do_not_autotune_cublas;
   bool do_not_autotune_cudnn =
       debug_options.xla_gpu_experimental_disable_binary_libraries() ||
       (do_not_autotune_cublas && !gpu_version.IsRocm());
+  VLOG(1) << "do_not_autotune_cudnn: " << do_not_autotune_cudnn;
 
   // 3. Assessing whether to autotune generic fusions.
   bool enable_fusion_autotuner =
