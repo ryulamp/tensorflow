@@ -33,6 +33,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -62,6 +63,7 @@ limitations under the License.
 #include "xla/shape_util.h"
 #include "xla/status_macros.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
@@ -450,6 +452,15 @@ MemorySpaceAssignment::RunMemorySpaceAssignment(
 absl::Status MemorySpaceAssignment::FindAllocationSequence(
     const HloLiveRange& hlo_live_range,
     const HloAliasAnalysis& alias_analysis) {
+  // MsaAlgorithm is initialized with a raw pointer to this instance's
+  // allocations_ member (an AllocationSequence, i.e., a vector of unique_ptrs
+  // to Allocation objects).
+  // HeapSimulator::Run runs simulation, during which MsaAlgorithm directly
+  // populates allocations_ in-place.
+  // Later in RunMemorySpaceAssignment, this allocations_ timeline is
+  // processed, converted into graph-mutating asynchronous copies, mapped to
+  // HLO buffer colors, and the finalized offset layouts are exported into
+  // preset_assignments_ (which is then returned).
   auto algorithm = std::make_unique<MsaAlgorithm>(module_, &allocations_,
                                                   options_, alias_analysis,
                                                   alias_info_, hlo_live_range);

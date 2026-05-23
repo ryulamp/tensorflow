@@ -66,6 +66,7 @@ limitations under the License.
 #include "xla/service/logical_buffer.h"
 #include "xla/service/time_utils.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 
