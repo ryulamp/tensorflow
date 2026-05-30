@@ -746,6 +746,7 @@ template <typename BufferType>
 void GlobalDecreasingSizeBestFitHeap<BufferType>::Alloc(
     const BufferType* buffer, int64_t size) {
   // Degenerate case: 0-sized buffers are always allocated at offset 0.
+  VLOG(4) << "Allocating buffer: " << buffer->ToString() << ", size: " << size;
   if (size == 0) {
     result_.chunk_map.emplace(buffer, Chunk::FromOffsetSize(0, 0));
     return;
@@ -753,6 +754,8 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::Alloc(
 
   auto emplace_result = buffer_intervals_.emplace(
       buffer, BufferInterval{buffer, size, current_time_, -1, {}, true});
+  VLOG(4) << "Emplaced buffer: " << buffer->ToString() << ", size: " << size
+          << ", start_time: " << current_time_;
   CHECK(emplace_result.second);
   ++current_time_;
 }
@@ -761,6 +764,8 @@ template <typename BufferType>
 void GlobalDecreasingSizeBestFitHeap<BufferType>::ShareWith(
     const BufferType* buffer, const BufferType* share_with, int64_t size) {
   // Degenerate case: 0-sized buffers are always allocated at offset 0.
+  VLOG(4) << "Sharing buffer: " << buffer->ToString() << ", size: " << size
+          << ", share_with: " << share_with->ToString();
   if (size == 0) {
     result_.chunk_map.emplace(buffer, Chunk::FromOffsetSize(0, 0));
     return;
@@ -769,6 +774,8 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::ShareWith(
   buffer_intervals_[share_with].colocations.push_back(buffer);
   auto emplace_result = buffer_intervals_.emplace(
       buffer, BufferInterval{buffer, size, current_time_, -1, {}, false});
+  VLOG(4) << "Emplaced buffer: " << buffer->ToString() << ", size: " << size
+          << ", start_time: " << current_time_;
   CHECK(emplace_result.second);
   ++current_time_;
 }
@@ -812,6 +819,8 @@ template <typename BufferType>
 void GlobalDecreasingSizeBestFitHeap<BufferType>::Free(const BufferType* buffer,
                                                        int64_t size) {
   // Degenerate case: 0-sized buffers are always allocated at offset 0.
+  VLOG(4) << "Freeing buffer: " << buffer->ToString() << ", size: " << size
+          << ", current_time: " << current_time_;
   if (size == 0) {
     return;
   }
@@ -820,6 +829,7 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::Free(const BufferType* buffer,
   CHECK_EQ(buffer_interval.size, size);
   CHECK_EQ(buffer_interval.end, -1);
   if (buffer_interval.end != -1) {
+    VLOG(4) << "Buffer: " << buffer->ToString() << " already freed.";
     return;
   }
   buffer_interval.end = current_time_;
@@ -1215,7 +1225,7 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedBufferInterval::Slice(
   for (int i = 0; i < num_slices; ++i) {
     int64_t new_size = slice_sizes_sorted_by_offset[i];
     size_total += new_size;
-    make_free_chunks_intervals_.push_back(BufferInterval{
+    make_free_chunks_intervals_.emplace_back(
         full_buffer_interval_.buffer,
         /*size=*/
         (i == num_slices - 1 ? full_buffer_interval_.size : min_slice_size),
@@ -1224,7 +1234,7 @@ void GlobalDecreasingSizeBestFitHeap<BufferType>::SlicedBufferInterval::Slice(
         /*colocations=*/
         (i == num_slices - 1 ? full_buffer_interval_.colocations
                              : empty_colocations),
-        full_buffer_interval_.need_allocation});
+        full_buffer_interval_.need_allocation);
   }
 
   CHECK_EQ(size_total, full_buffer_interval_.size)
