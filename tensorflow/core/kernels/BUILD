@@ -3324,7 +3324,17 @@ tf_kernel_library(
 tf_kernel_library(
     name = "save_op",
     prefix = "save_op",
-    deps = SAVE_RESTORE_DEPS,
+    deps = [
+        ":save_restore_tensor",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core/framework:tensor",
+        "//tensorflow/core/framework:tensor_shape",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+    ],
 )
 
 tf_kernel_library(
