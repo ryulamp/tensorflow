@@ -113,7 +113,11 @@ struct UnaryClipOp<CPUDevice, T> {
                   typename TTypes<T>::ConstFlat& in1_flat,
                   typename TTypes<T>::ConstFlat& in2_flat,
                   typename TTypes<T>::Flat& out_flat) const {
-    out_flat = in0_flat.unaryExpr(UnaryClipFunc<T>(in1_flat(0), in2_flat(0)));
+    if constexpr (Eigen::NumTraits<T>::IsComplex) {
+      out_flat = in0_flat.unaryExpr(UnaryClipFunc<T>(in1_flat(0), in2_flat(0)));
+    } else {
+      out_flat.device(d) = in0_flat.cwiseMin(in2_flat(0)).cwiseMax(in1_flat(0));
+    }
   }
 };
 
@@ -147,8 +151,12 @@ struct BinaryRightClipOp<CPUDevice, T> {
                   typename TTypes<T>::ConstFlat& in1_flat,
                   typename TTypes<T>::ConstFlat& in2_flat,
                   typename TTypes<T>::Flat& out_flat) const {
-    out_flat =
-        in0_flat.binaryExpr(in2_flat, BinaryRightClipFunc<T>(in1_flat(0)));
+    if constexpr (Eigen::NumTraits<T>::IsComplex) {
+      out_flat =
+          in0_flat.binaryExpr(in2_flat, BinaryRightClipFunc<T>(in1_flat(0)));
+    } else {
+      out_flat.device(d) = in0_flat.cwiseMin(in2_flat).cwiseMax(in1_flat(0));
+    }
   }
 };
 
@@ -182,8 +190,12 @@ struct BinaryLeftClipOp<CPUDevice, T> {
                   typename TTypes<T>::ConstFlat& in1_flat,
                   typename TTypes<T>::ConstFlat& in2_flat,
                   typename TTypes<T>::Flat& out_flat) const {
-    out_flat =
-        in0_flat.binaryExpr(in1_flat, BinaryLeftClipFunc<T>(in2_flat(0)));
+    if constexpr (Eigen::NumTraits<T>::IsComplex) {
+      out_flat =
+          in0_flat.binaryExpr(in1_flat, BinaryLeftClipFunc<T>(in2_flat(0)));
+    } else {
+      out_flat.device(d) = in0_flat.cwiseMin(in2_flat(0)).cwiseMax(in1_flat);
+    }
   }
 };
 
