@@ -49,7 +49,7 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   TfLiteTensor* output;
   TF_LITE_ENSURE_OK(context,
                     GetOutputSafe(context, node, kOutputTensor, &output));
-  const int num_elements = NumElements(input);
+  const int64_t num_elements = NumElements(input);
   switch (input->type) {
     case kTfLiteInt64:
       memset(GetTensorData<int64_t>(output), 0, num_elements * sizeof(int64_t));
