@@ -16,13 +16,14 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_KERNELS_SEARCHSORTED_OP_H_
 #define TENSORFLOW_CORE_KERNELS_SEARCHSORTED_OP_H_
 
+#include <cstdint>
+
+#include "absl/status/status.h"
 #include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
-#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_types.h"
-#include "tensorflow/core/framework/types.h"
-#include "tensorflow/core/lib/core/errors.h"
 
 namespace tensorflow {
+class OpKernelContext;
 namespace functor {
 
 template <typename Device, typename T, typename OutType>
@@ -32,8 +33,8 @@ struct UpperBoundFunctor {
   static absl::Status Compute(
       OpKernelContext* context,
       const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
-      const typename TTypes<T, 1>::ConstTensor& values, int batch_size,
-      int num_inputs, int num_values,
+      const typename TTypes<T, 1>::ConstTensor& values, int64_t batch_size,
+      int64_t num_inputs, int64_t num_values,
       typename TTypes<OutType, 1>::Tensor* output);
 };
 
@@ -44,11 +45,11 @@ struct LowerBoundFunctor {
   static absl::Status Compute(
       OpKernelContext* context,
       const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
-      const typename TTypes<T, 1>::ConstTensor& values, int batch_size,
-      int num_inputs, int num_values,
+      const typename TTypes<T, 1>::ConstTensor& values, int64_t batch_size,
+      int64_t num_inputs, int64_t num_values,
       typename TTypes<OutType, 1>::Tensor* output);
 };
 }  // namespace functor
 
-}  // end namespace tensorflow
+}  // namespace tensorflow
 #endif  // TENSORFLOW_CORE_KERNELS_SEARCHSORTED_OP_H_

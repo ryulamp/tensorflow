@@ -17,6 +17,11 @@ limitations under the License.
 
 #include "tensorflow/core/kernels/searchsorted_op.h"
 
+#include <algorithm>
+#include <limits>
+
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "tensorflow/core/framework/bounds_check.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
@@ -24,42 +29,58 @@ limitations under the License.
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/kernels/fill_functor.h"
 #include "tensorflow/core/lib/core/bits.h"
-#include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/threadpool.h"
 #include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
-typedef Eigen::ThreadPoolDevice CPUDevice;
-typedef Eigen::GpuDevice GPUDevice;
+using CPUDevice = Eigen::ThreadPoolDevice;
+using GPUDevice = Eigen::GpuDevice;
 
 namespace functor {
+template <typename T, typename OutType, typename SearchFn>
+absl::Status ComputeCpu(OpKernelContext* context,
+                        const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
+                        const typename TTypes<T, 1>::ConstTensor& values,
+                        int64_t batch_size, int64_t num_inputs,
+                        int64_t num_values,
+                        typename TTypes<OutType, 1>::Tensor* output,
+                        SearchFn search_fn) {
+  auto work_fn = [&](int64_t first_b, int64_t last_b) {
+    for (int64_t b = first_b; b < last_b; ++b) {
+      const T* sorted_inputs_ptr = sorted_inputs.data() + b * num_inputs;
+      OutType* output_ptr = output->data() + b * num_values;
+      const T* values_ptr = values.data() + b * num_values;
+      for (int64_t i = 0; i < num_values; ++i) {
+        output_ptr[i] = static_cast<OutType>(
+            search_fn(sorted_inputs_ptr, sorted_inputs_ptr + num_inputs,
+                      values_ptr[i]) -
+            sorted_inputs_ptr);
+      }
+    }
+  };
+  const auto* worker_threads =
+      context->device()->tensorflow_cpu_worker_threads();
+  thread::ThreadPool* thread_pool = worker_threads->workers;
+  const int64_t kCostMultiplier = 1;
+  int64_t cost_per_batch =
+      kCostMultiplier * num_values * Log2Ceiling64(num_inputs);
+  thread_pool->ParallelFor(batch_size, cost_per_batch, work_fn);
+  return absl::OkStatus();
+}
+
 template <typename T, typename OutType>
 struct UpperBoundFunctor<CPUDevice, T, OutType> {
   static absl::Status Compute(
       OpKernelContext* context,
       const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
-      const typename TTypes<T, 1>::ConstTensor& values, int batch_size,
-      int num_inputs, int num_values,
+      const typename TTypes<T, 1>::ConstTensor& values, int64_t batch_size,
+      int64_t num_inputs, int64_t num_values,
       typename TTypes<OutType, 1>::Tensor* output) {
-    auto work_fn = [&](int64_t first, int64_t last) {
-      for (int b = 0; b < batch_size; ++b) {
-        const T* sorted_inputs_ptr = sorted_inputs.data() + b * num_inputs;
-        OutType* output_ptr = output->data() + b * num_values;
-        for (int i = first; i < last; ++i) {
-          output_ptr[i] = std::upper_bound(sorted_inputs_ptr,
-                                           sorted_inputs_ptr + num_inputs,
-                                           values(i + b * num_values)) -
-                          sorted_inputs_ptr;
-        }
-      }
-    };
-    auto worker_threads = *(context->device()->tensorflow_cpu_worker_threads());
-    thread::ThreadPool* thread_pool = worker_threads.workers;
-    const float kCostMultiplier = 1.f;  // Can be tuned to minimize overhead
-    int64_t cost_per_unit =
-        kCostMultiplier * batch_size * Log2Ceiling(num_inputs);
-    thread_pool->ParallelFor(num_values, cost_per_unit, work_fn);
-    return absl::OkStatus();
+    return ComputeCpu<T, OutType>(
+        context, sorted_inputs, values, batch_size, num_inputs, num_values,
+        output, [](const T* first, const T* last, const T& val) {
+          return std::upper_bound(first, last, val);
+        });
   }
 };
 
@@ -68,36 +89,22 @@ struct LowerBoundFunctor<CPUDevice, T, OutType> {
   static absl::Status Compute(
       OpKernelContext* context,
       const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
-      const typename TTypes<T, 1>::ConstTensor& values, int batch_size,
-      int num_inputs, int num_values,
+      const typename TTypes<T, 1>::ConstTensor& values, int64_t batch_size,
+      int64_t num_inputs, int64_t num_values,
       typename TTypes<OutType, 1>::Tensor* output) {
-    auto work_fn = [&](int64_t first, int64_t last) {
-      for (int b = 0; b < batch_size; ++b) {
-        const T* sorted_inputs_ptr = sorted_inputs.data() + b * num_inputs;
-        OutType* output_ptr = output->data() + b * num_values;
-        for (int i = first; i < last; ++i) {
-          output_ptr[i] = std::lower_bound(sorted_inputs_ptr,
-                                           sorted_inputs_ptr + num_inputs,
-                                           values(i + b * num_values)) -
-                          sorted_inputs_ptr;
-        }
-      }
-    };
-    auto worker_threads = *(context->device()->tensorflow_cpu_worker_threads());
-    thread::ThreadPool* thread_pool = worker_threads.workers;
-    const float kCostMultiplier = 1.f;  // Can be tuned to minimize overhead
-    int64_t cost_per_unit =
-        kCostMultiplier * batch_size * Log2Ceiling(num_inputs);
-    thread_pool->ParallelFor(num_values, cost_per_unit, work_fn);
-    return absl::OkStatus();
+    return ComputeCpu<T, OutType>(
+        context, sorted_inputs, values, batch_size, num_inputs, num_values,
+        output, [](const T* first, const T* last, const T& val) {
+          return std::lower_bound(first, last, val);
+        });
   }
 };
 }  // namespace functor
 
 template <typename Device, typename T, typename OutType>
-class UpperBoundOp : public OpKernel {
+class SearchSortedOpBase : public OpKernel {
  public:
-  explicit UpperBoundOp(OpKernelConstruction* ctx) : OpKernel(ctx) {}
+  explicit SearchSortedOpBase(OpKernelConstruction* ctx) : OpKernel(ctx) {}
 
   void Compute(OpKernelContext* ctx) override {
     const Tensor& sorted_inputs_t = ctx->input(0);
@@ -109,8 +116,7 @@ class UpperBoundOp : public OpKernel {
         ctx, sorted_inputs_t.shape().dims() == 2,
         absl::InvalidArgumentError(absl::StrCat(
             "Shape must be rank 2 but is rank ", sorted_inputs_t.shape().dims(),
-            " for "
-            "`sorted_inputs` argument")));
+            " for `sorted_inputs` argument")));
     // Values must be a matrix
     // This replicates the shape requirements for the op in array_ops.cc
     OP_REQUIRES(ctx, values_t.shape().dims() == 2,
@@ -119,13 +125,8 @@ class UpperBoundOp : public OpKernel {
                     values_t.shape().dims(), " for `values` argument")));
     // must have same batch dim_size for both
     OP_REQUIRES(ctx, sorted_inputs_t.dim_size(0) == values_t.dim_size(0),
-                absl::Status(absl::StatusCode::kInvalidArgument,
-                             "Leading dim_size of both tensors must match."));
-
-    // this is required because we do indexing in int32 on the GPU
-    OP_REQUIRES(ctx, values_t.NumElements() < std::numeric_limits<int>::max(),
-                absl::Status(absl::StatusCode::kInvalidArgument,
-                             "values tensor size must less than INT_MAX"));
+                absl::InvalidArgumentError(
+                    "Leading dim_size of both Tensors must match."));
 
     Tensor* output_t;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(0, values_t.shape(), &output_t));
@@ -133,11 +134,11 @@ class UpperBoundOp : public OpKernel {
     if (output_t->dtype() == DT_INT32) {
       OP_REQUIRES(ctx,
                   FastBoundsCheck(sorted_inputs_t.dim_size(1),
-                                  std::numeric_limits<int>::max()),
-                  absl::InvalidArgumentError(
-                      absl::StrCat("trailing dim_size must less than "
-                                   "INT_MAX for int32 output type, was ",
-                                   sorted_inputs_t.dim_size(1))));
+                                  std::numeric_limits<int>::max() + 1ll),
+                  absl::InvalidArgumentError(absl::StrCat(
+                      "trailing dim_size must be less than or equal to "
+                      "INT_MAX for int32 output type, was ",
+                      sorted_inputs_t.dim_size(1))));
     }
 
     auto output = output_t->template flat<OutType>();
@@ -151,74 +152,54 @@ class UpperBoundOp : public OpKernel {
       return;
     }
 
-    OP_REQUIRES_OK(
-        ctx, functor::UpperBoundFunctor<Device, T, OutType>::Compute(
-                 ctx, sorted_inputs, values, sorted_inputs_t.dim_size(0),
-                 sorted_inputs_t.dim_size(1), values_t.dim_size(1), &output));
+    ComputeFunctor(ctx, sorted_inputs, values, sorted_inputs_t.dim_size(0),
+                   sorted_inputs_t.dim_size(1), values_t.dim_size(1), &output);
+  }
+
+ protected:
+  virtual void ComputeFunctor(
+      OpKernelContext* ctx,
+      const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
+      const typename TTypes<T, 1>::ConstTensor& values, int64_t batch_size,
+      int64_t num_inputs, int64_t num_values,
+      typename TTypes<OutType, 1>::Tensor* output) = 0;
+};
+
+template <typename Device, typename T, typename OutType>
+class UpperBoundOp : public SearchSortedOpBase<Device, T, OutType> {
+ public:
+  explicit UpperBoundOp(OpKernelConstruction* ctx)
+      : SearchSortedOpBase<Device, T, OutType>(ctx) {}
+
+ protected:
+  void ComputeFunctor(OpKernelContext* ctx,
+                      const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
+                      const typename TTypes<T, 1>::ConstTensor& values,
+                      int64_t batch_size, int64_t num_inputs,
+                      int64_t num_values,
+                      typename TTypes<OutType, 1>::Tensor* output) override {
+    OP_REQUIRES_OK(ctx, functor::UpperBoundFunctor<Device, T, OutType>::Compute(
+                            ctx, sorted_inputs, values, batch_size, num_inputs,
+                            num_values, output));
   }
 };
 
 template <typename Device, typename T, typename OutType>
-class LowerBoundOp : public OpKernel {
+class LowerBoundOp : public SearchSortedOpBase<Device, T, OutType> {
  public:
-  explicit LowerBoundOp(OpKernelConstruction* ctx) : OpKernel(ctx) {}
+  explicit LowerBoundOp(OpKernelConstruction* ctx)
+      : SearchSortedOpBase<Device, T, OutType>(ctx) {}
 
-  void Compute(OpKernelContext* ctx) override {
-    const Tensor& sorted_inputs_t = ctx->input(0);
-    const Tensor& values_t = ctx->input(1);
-
-    // Inputs must be a matrix
-    // This replicates the shape requirements for the op in array_ops.cc
-    OP_REQUIRES(
-        ctx, sorted_inputs_t.shape().dims() == 2,
-        absl::InvalidArgumentError(absl::StrCat(
-            "Shape must be rank 2 but is rank ", sorted_inputs_t.shape().dims(),
-            " for "
-            "`sorted_inputs` argument")));
-    // Values must be a matrix
-    // This replicates the shape requirements for the op in array_ops.cc
-    OP_REQUIRES(ctx, values_t.shape().dims() == 2,
-                absl::InvalidArgumentError(absl::StrCat(
-                    "Shape must be rank 2 but is rank ",
-                    values_t.shape().dims(), " for `values` argument")));
-    // must have same batch dim_size for both
-    OP_REQUIRES(ctx, sorted_inputs_t.dim_size(0) == values_t.dim_size(0),
-                absl::Status(absl::StatusCode::kInvalidArgument,
-                             "Leading dim_size of both tensors must match."));
-
-    // this is required because we do indexing in int32 on the GPU
-    OP_REQUIRES(ctx, values_t.NumElements() < std::numeric_limits<int>::max(),
-                absl::Status(absl::StatusCode::kInvalidArgument,
-                             "values tensor size must less than INT_MAX"));
-
-    Tensor* output_t;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, values_t.shape(), &output_t));
-
-    if (output_t->dtype() == DT_INT32) {
-      OP_REQUIRES(ctx,
-                  FastBoundsCheck(sorted_inputs_t.dim_size(1),
-                                  std::numeric_limits<int>::max()),
-                  absl::InvalidArgumentError(
-                      absl::StrCat("trailing dim_size must less than "
-                                   "INT_MAX for int32 output type, was ",
-                                   sorted_inputs_t.dim_size(1))));
-    }
-
-    auto output = output_t->template flat<OutType>();
-    const auto sorted_inputs = sorted_inputs_t.template flat<T>();
-    const auto values = values_t.template flat<T>();
-
-    // For empty inputs, all values will be placed at the zeroth position.
-    if (sorted_inputs.size() == 0) {
-      functor::SetZeroFunctor<Device, OutType> set_zero;
-      set_zero(ctx->eigen_device<Device>(), output);
-      return;
-    }
-
-    OP_REQUIRES_OK(
-        ctx, functor::LowerBoundFunctor<Device, T, OutType>::Compute(
-                 ctx, sorted_inputs, values, sorted_inputs_t.dim_size(0),
-                 sorted_inputs_t.dim_size(1), values_t.dim_size(1), &output));
+ protected:
+  void ComputeFunctor(OpKernelContext* ctx,
+                      const typename TTypes<T, 1>::ConstTensor& sorted_inputs,
+                      const typename TTypes<T, 1>::ConstTensor& values,
+                      int64_t batch_size, int64_t num_inputs,
+                      int64_t num_values,
+                      typename TTypes<OutType, 1>::Tensor* output) override {
+    OP_REQUIRES_OK(ctx, functor::LowerBoundFunctor<Device, T, OutType>::Compute(
+                            ctx, sorted_inputs, values, batch_size, num_inputs,
+                            num_values, output));
   }
 };
 
@@ -237,7 +218,7 @@ TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
                               .Device(DEVICE_CPU)                   \
                               .TypeConstraint<type>("T")            \
                               .TypeConstraint<int64_t>("out_type"), \
-                          UpperBoundOp<CPUDevice, type, int64>);
+                          UpperBoundOp<CPUDevice, type, int64_t>);
 
 TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
 #undef REGISTER_KERNELS
@@ -259,7 +240,7 @@ TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
                               .Device(DEVICE_GPU)                   \
                               .TypeConstraint<type>("T")            \
                               .TypeConstraint<int64_t>("out_type"), \
-                          UpperBoundOp<GPUDevice, type, int64>);
+                          UpperBoundOp<GPUDevice, type, int64_t>);
 
 TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
 #undef REGISTER_KERNELS
@@ -281,7 +262,7 @@ TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
                               .Device(DEVICE_CPU)                   \
                               .TypeConstraint<type>("T")            \
                               .TypeConstraint<int64_t>("out_type"), \
-                          LowerBoundOp<CPUDevice, type, int64>);
+                          LowerBoundOp<CPUDevice, type, int64_t>);
 
 TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
 #undef REGISTER_KERNELS
@@ -303,7 +284,7 @@ TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
                               .Device(DEVICE_GPU)                   \
                               .TypeConstraint<type>("T")            \
                               .TypeConstraint<int64_t>("out_type"), \
-                          LowerBoundOp<GPUDevice, type, int64>);
+                          LowerBoundOp<GPUDevice, type, int64_t>);
 
 TF_CALL_REAL_NUMBER_TYPES(REGISTER_KERNELS);
 #undef REGISTER_KERNELS
