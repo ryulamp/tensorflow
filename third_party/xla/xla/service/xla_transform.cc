@@ -65,9 +65,14 @@ std::vector<std::shared_ptr<HloXlaTransform>> GetHloXlaTransforms(
   return transforms[stage];
 }
 
-void ClearHloXlaTransforms() {
+bool ClearHloXlaTransforms() {
   absl::MutexLock transforms_lock(&transforms_mutex);
-  GetHloXlaTransformsInternal().clear();
+  auto& transforms = GetHloXlaTransformsInternal();
+  if (transforms.empty()) {
+    return false;
+  }
+  transforms.clear();
+  return true;
 }
 
 absl::StatusOr<bool> ApplyXlaTransformsToModule(

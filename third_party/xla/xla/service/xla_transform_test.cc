@@ -72,6 +72,14 @@ TEST_F(XlaTransformTest, Registration) {
   EXPECT_NE(transforms[0], nullptr);
 }
 
+TEST_F(XlaTransformTest, ClearTransforms) {
+  auto axl = std::make_shared<TrivialTransform>("test_transform");
+  RegisterHloXlaTransform(HloXlaTransform::PipelineStage::kPreScheduler, axl);
+
+  EXPECT_TRUE(ClearHloXlaTransforms());
+  EXPECT_FALSE(ClearHloXlaTransforms());
+}
+
 TEST_F(XlaTransformTest, ApplyTransforms) {
   absl::string_view hlo_text = R"(
     HloModule test_module
@@ -208,6 +216,57 @@ TEST_F(XlaTransformTest, PjrtCApiExtension) {
 
   EXPECT_EQ(module->entry_computation()->root_instruction()->opcode(),
             HloOpcode::kNegate);
+}
+
+TEST_F(XlaTransformTest, PjrtCApiExtensionClear) {
+  PJRT_Xla_Transform_Extension extension = pjrt::CreateXlaTransformExtension();
+
+  // Clear when empty should return false.
+  {
+    PJRT_Clear_Xla_Transforms_Args args;
+    args.struct_size = PJRT_Clear_Xla_Transforms_Args_STRUCT_SIZE;
+    args.cleared = true;  // initialize to true to make sure it changes
+    PJRT_Error* error = extension.clear_xla_transforms(&args);
+    EXPECT_EQ(error, nullptr);
+    EXPECT_FALSE(args.cleared);
+  }
+
+  // Register a transform.
+  PJRT_XlaTransform_Callbacks callbacks;
+  callbacks.version = PJRT_API_XLA_TRANSFORM_EXTENSION_VERSION;
+  callbacks.dtor = nullptr;
+  callbacks.transform_hlo_module = [](PJRT_XlaTransform_Callbacks* callbacks,
+                                      PJRT_XlaTransform_Args* args) {};
+
+  PJRT_Register_Xla_Transform_Args reg_args;
+  reg_args.struct_size = PJRT_Register_Xla_Transform_Args_STRUCT_SIZE;
+  reg_args.name = "pjrt_c_api_transform";
+  reg_args.name_size = sizeof("pjrt_c_api_transform") - 1;
+  reg_args.stage = PJRT_XlaTransform_PipelineStage_kPreScheduler;
+  reg_args.callbacks = &callbacks;
+
+  PJRT_Error* error = extension.register_xla_transform(&reg_args);
+  EXPECT_EQ(error, nullptr);
+
+  // Clear when not empty should return true.
+  {
+    PJRT_Clear_Xla_Transforms_Args args;
+    args.struct_size = PJRT_Clear_Xla_Transforms_Args_STRUCT_SIZE;
+    args.cleared = false;
+    PJRT_Error* error = extension.clear_xla_transforms(&args);
+    EXPECT_EQ(error, nullptr);
+    EXPECT_TRUE(args.cleared);
+  }
+
+  // Clear again should return false.
+  {
+    PJRT_Clear_Xla_Transforms_Args args;
+    args.struct_size = PJRT_Clear_Xla_Transforms_Args_STRUCT_SIZE;
+    args.cleared = true;
+    PJRT_Error* error = extension.clear_xla_transforms(&args);
+    EXPECT_EQ(error, nullptr);
+    EXPECT_FALSE(args.cleared);
+  }
 }
 
 TEST_F(XlaTransformTest, PjrtCApiExtensionPreservesSchedule) {

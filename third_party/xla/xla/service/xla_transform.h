@@ -71,9 +71,10 @@ void RegisterHloXlaTransform(HloXlaTransform::PipelineStage stage,
 std::vector<std::shared_ptr<HloXlaTransform>> GetHloXlaTransforms(
     HloXlaTransform::PipelineStage stage);
 
-// Clears all registered HloXlaTransforms.
+// Clears all registered HloXlaTransforms. Returns true if any transforms were
+// cleared, false otherwise.
 // Thread-safe.
-void ClearHloXlaTransforms();
+bool ClearHloXlaTransforms();
 
 // Applies all registered HloXlaTransforms for the specified stage to the
 // given module. Returns an error if any transform fails, otherwise returns true

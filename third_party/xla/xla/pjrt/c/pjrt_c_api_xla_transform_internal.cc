@@ -145,7 +145,15 @@ PJRT_Error* RegisterXlaTransform(PJRT_Register_Xla_Transform_Args* args) {
   }
 
   xla::RegisterHloXlaTransform(stage, transform);
+  return nullptr;
+}
 
+PJRT_Error* ClearXlaTransforms(PJRT_Clear_Xla_Transforms_Args* args) {
+  if (args->struct_size < PJRT_Clear_Xla_Transforms_Args_STRUCT_SIZE) {
+    return pjrt::StatusToPjRtError(
+        absl::InvalidArgumentError("Invalid struct_size"));
+  }
+  args->cleared = xla::ClearHloXlaTransforms();
   return nullptr;
 }
 
@@ -160,6 +168,7 @@ PJRT_Xla_Transform_Extension CreateXlaTransformExtension(
           /*next=*/next,
       },
       /*register_xla_transform=*/RegisterXlaTransform,
+      /*clear_xla_transforms=*/ClearXlaTransforms,
   };
 }
 
