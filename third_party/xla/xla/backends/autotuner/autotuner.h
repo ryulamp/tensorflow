@@ -42,6 +42,8 @@ limitations under the License.
 
 using InstructionFilterFn = std::function<bool(const xla::HloInstruction&)>;
 
+#include "xla/backends/autotuner/codegen_orchestrator.h"
+
 namespace xla {
 
 struct AutotuneConfig {
@@ -121,12 +123,7 @@ class Autotuner {
  private:
   using InstructionGroup = std::vector<HloInstruction*>;
 
-  struct Config {
-    CodegenBackend* codegen_backend;
-    std::unique_ptr<BackendConfig> backend_config;
-
-    std::string ToString() const;
-  };
+  using Config = CodegenOrchestrator::Config;
   struct ExecutableCandidate {
     Config config;
     std::unique_ptr<Executable> executable;
@@ -172,29 +169,20 @@ class Autotuner {
     bool has_trusted_member = false;
   };
 
-  Autotuner(std::vector<std::unique_ptr<CodegenBackend>> codegen_backends,
+  Autotuner(std::unique_ptr<CodegenOrchestrator> orchestrator,
             std::unique_ptr<Profiler> profiler, AutotuneConfig autotune_config,
             std::unique_ptr<AutotunerCacheInterface> cache,
             tsl::thread::ThreadPool* thread_pool)
-      : codegen_backends_(std::move(codegen_backends)),
+      : orchestrator_(std::move(orchestrator)),
         profiler_(std::move(profiler)),
         autotune_config_(autotune_config),
         cache_(std::move(cache)),
         thread_pool_(thread_pool) {}
 
-  // Returns a list of instruction groups that can be autotuned. Each group
-  // contains a set of instructions that are equivalent as they have the same
-  // HLO fingerprint.
-  std::vector<InstructionGroup> GetAutotuningCandidates(
-      const HloModule* module, const InstructionFilterFn& should_autotune);
-
   // Gets the best config for each given instruction and errors out if any of
   // them fails.
   absl::StatusOr<std::vector<Config>> GetConfigsForAll(
       const std::vector<InstructionGroup>& instruction_groups);
-
-  // Gets the default config for the given instruction.
-  absl::StatusOr<Config> GetDefaultConfig(const HloInstruction& instr);
 
   // Gets the config for the given instruction. If instruction is in cache,
   // cached config is returned. If not in cache and use_default_config is
@@ -211,18 +199,7 @@ class Autotuner {
   std::optional<Autotuner::Config> LookUp(const HloInstruction* instr);
   absl::Status Insert(const HloInstruction* instr, Autotuner::Config& config);
 
-  absl::StatusOr<std::vector<Config>> GetSupportedConfigs(
-      HloInstruction* instr);
 
-  // Compiles HLO with given config and returns executable on success.
-  // Returns error status on compilation failure or if executable is invalid
-  // (e.g. due to register spill).
-  absl::StatusOr<std::unique_ptr<Executable>> Compile(
-      const HloInstruction* instr, const Config& config);
-
-  tsl::Future<std::vector<
-      std::pair<Config, absl::StatusOr<std::unique_ptr<Executable>>>>>
-  CompileAll(const HloInstruction* instr, std::vector<Config>& configs);
 
   // Profiles all the executable candidates for a given instruction.
   absl::StatusOr<std::vector<ConfigResult>> ProfileAll(
@@ -259,9 +236,6 @@ class Autotuner {
   void DemoteNonWinningClusterConfigs(
       std::vector<ConfigResult>& results,
       const std::vector<OutputCluster>& clusters);
-  absl::Status IsValidExecutable(
-      const absl::StatusOr<std::unique_ptr<Executable>>& executable,
-      const HloInstruction* instr) const;
 
   void LogConfigResults(const HloInstruction& instr,
                         const std::vector<ConfigResult>& results);
@@ -269,7 +243,7 @@ class Autotuner {
   // Dumps HLO before and after applying the config.
   absl::Status DumpHlo(HloInstruction* instr, const Config& config);
 
-  std::vector<std::unique_ptr<CodegenBackend>> codegen_backends_;
+  std::unique_ptr<CodegenOrchestrator> orchestrator_;
   std::unique_ptr<Profiler> profiler_ ABSL_GUARDED_BY(profiler_m_);
   AutotuneConfig autotune_config_;
   std::unique_ptr<AutotunerCacheInterface> cache_;
