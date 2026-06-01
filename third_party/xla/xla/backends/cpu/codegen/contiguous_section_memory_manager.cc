@@ -82,16 +82,16 @@ void ContiguousSectionMemoryManager::reserveAllocationSpace(
   CHECK_EQ(allocation_.allocatedSize(), 0);
 
   static const size_t page_size = llvm::sys::Process::getPageSizeEstimate();
-  CHECK_LE(code_align.value(), page_size);
-  CHECK_LE(ro_data_align.value(), page_size);
-  CHECK_LE(rw_data_align.value(), page_size);
-  code_size = RoundUpTo<uintptr_t>(code_size + code_align.value(), page_size);
-  ro_data_size =
-      RoundUpTo<uintptr_t>(ro_data_size + ro_data_align.value(), page_size);
-  rw_data_size =
-      RoundUpTo<uintptr_t>(rw_data_size + rw_data_align.value(), page_size);
-  uintptr_t total_size =
-      code_size + ro_data_size + rw_data_size + page_size * 3;
+  size_t code_align_val = std::max<size_t>(code_align.value(), page_size);
+  size_t ro_data_align_val = std::max<size_t>(ro_data_align.value(), page_size);
+  size_t rw_data_align_val = std::max<size_t>(rw_data_align.value(), page_size);
+
+  code_size = RoundUpTo<uintptr_t>(code_size, code_align_val);
+  ro_data_size = RoundUpTo<uintptr_t>(ro_data_size, ro_data_align_val);
+  rw_data_size = RoundUpTo<uintptr_t>(rw_data_size, rw_data_align_val);
+
+  uintptr_t total_size = code_size + ro_data_size + rw_data_size +
+                         code_align_val + ro_data_align_val + rw_data_align_val;
 
   std::error_code ec;
   allocation_ = mmapper_->allocateMappedMemory(
@@ -103,14 +103,19 @@ void ContiguousSectionMemoryManager::reserveAllocationSpace(
   }
 
   auto base = reinterpret_cast<std::uintptr_t>(allocation_.base());
+  uintptr_t code_start = RoundUpTo<uintptr_t>(base, code_align_val);
   code_block_ = code_free_ =
-      llvm::sys::MemoryBlock(reinterpret_cast<void*>(base), code_size);
-  base += code_size;
-  ro_data_block_ = ro_data_free_ =
-      llvm::sys::MemoryBlock(reinterpret_cast<void*>(base), ro_data_size);
-  base += ro_data_size;
-  rw_data_block_ = rw_data_free_ =
-      llvm::sys::MemoryBlock(reinterpret_cast<void*>(base), rw_data_size);
+      llvm::sys::MemoryBlock(reinterpret_cast<void*>(code_start), code_size);
+
+  uintptr_t ro_data_start =
+      RoundUpTo<uintptr_t>(code_start + code_size, ro_data_align_val);
+  ro_data_block_ = ro_data_free_ = llvm::sys::MemoryBlock(
+      reinterpret_cast<void*>(ro_data_start), ro_data_size);
+
+  uintptr_t rw_data_start =
+      RoundUpTo<uintptr_t>(ro_data_start + ro_data_size, rw_data_align_val);
+  rw_data_block_ = rw_data_free_ = llvm::sys::MemoryBlock(
+      reinterpret_cast<void*>(rw_data_start), rw_data_size);
 }
 
 uint8_t* ContiguousSectionMemoryManager::allocateDataSection(
