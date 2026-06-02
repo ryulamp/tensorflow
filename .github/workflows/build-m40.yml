@@ -34,7 +34,7 @@ concurrency:
 jobs:
   build-m40-wheel:
     name: Build TF wheel for M40 (sm_52)
-    runs-on: linux-x86-n2-16
+    runs-on: ubuntu-24.04
     env:
       PIP_NO_CACHE_DIR: 1
     defaults:
@@ -42,7 +42,7 @@ jobs:
         shell: bash
     container:
       image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -52,6 +52,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Configure Bazel cache
+        run: |
+          echo "build --config=tf_public_cache" >> .bazelrc
 
       - name: Build TensorFlow wheel for M40 GPU
         env:
@@ -66,4 +70,4 @@ jobs:
         with:
           name: "tensorflow-m40-wheel-${{ github.run_number }}-${{ github.run_attempt }}"
           path: build_output/*.whl
-          if-no-files-found: warn
+          if-no-files-warn: warn
