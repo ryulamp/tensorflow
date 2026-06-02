@@ -33,6 +33,25 @@ namespace tflite {
 // SimplePlanner::allocs_.
 struct SimpleAlloc {
   SimpleAlloc() { reset(); }
+  ~SimpleAlloc() { free(); }
+  SimpleAlloc(const SimpleAlloc&) = delete;
+  SimpleAlloc& operator=(const SimpleAlloc&) = delete;
+  SimpleAlloc(SimpleAlloc&& other) noexcept {
+    size = other.size;
+    node = other.node;
+    ptr = other.ptr;
+    other.reset();
+  }
+  SimpleAlloc& operator=(SimpleAlloc&& other) noexcept {
+    if (this != &other) {
+      free();
+      size = other.size;
+      node = other.node;
+      ptr = other.ptr;
+      other.reset();
+    }
+    return *this;
+  }
 
   // Size of allocation.
   size_t size;
@@ -67,6 +86,14 @@ struct SimpleAlloc {
       ::free(ptr);
     }
     reset();
+  }
+
+  // Free allocated heap memory but preserve size and node information.
+  inline void release() {
+    if (ptr) {
+      ::free(ptr);
+      ptr = nullptr;
+    }
   }
 };
 
