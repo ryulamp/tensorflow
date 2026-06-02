@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/lite/kernels/variants/list_ops_util.h"
 
+#include <cstdint>
 #include <vector>
 
 #include "tensorflow/lite/array.h"
@@ -30,7 +31,14 @@ IntArrayUniquePtr TensorAsShape(const TfLiteTensor& shape) {
     // `shape` tensor encode an unranked shape.
     return BuildTfLiteArray({});
   }
+  if (shape.dims->size > 1) {
+    return nullptr;
+  }
   const int rank = shape.dims->data[0];
+  if (rank < 0 || shape.bytes < rank * sizeof(int32_t) ||
+      (rank > 0 && shape.data.data == nullptr)) {
+    return nullptr;
+  }
   const int* begin = reinterpret_cast<const int*>(shape.data.data);
   const int* end = begin + rank;
   return BuildTfLiteArray(std::vector<int>(begin, end));

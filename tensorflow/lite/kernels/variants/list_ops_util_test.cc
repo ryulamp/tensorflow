@@ -57,6 +57,24 @@ TEST(TensorAsShape, OneDMultipleElementShape_ReturnsHighRankedShape) {
   ASSERT_THAT(shape_from_tensor.get(), DimsAre({10, 9, 8}));
 }
 
+TEST(TensorAsShape, MultidimensionalTensor_ReturnsNull) {
+  TensorUniquePtr multi_d_tensor =
+      BuildTfLiteTensor(kTfLiteInt32, BuildTfLiteArray({2, 3}), kTfLiteDynamic);
+
+  IntArrayUniquePtr shape_from_tensor = TensorAsShape(*multi_d_tensor);
+  EXPECT_EQ(shape_from_tensor.get(), nullptr);
+}
+
+TEST(TensorAsShape, BufferTooSmall_ReturnsNull) {
+  TensorUniquePtr small_buffer_tensor =
+      BuildTfLiteTensor(kTfLiteInt32, BuildTfLiteArray({1000}), kTfLiteDynamic);
+  // Artificially reduce bytes to simulate OOB read vulnerability
+  small_buffer_tensor->bytes = 0;
+
+  IntArrayUniquePtr shape_from_tensor = TensorAsShape(*small_buffer_tensor);
+  EXPECT_EQ(shape_from_tensor.get(), nullptr);
+}
+
 TEST(MergeShapesOrNull, IncompatibleSameRank_ReturnsNull) {
   IntArrayUniquePtr l = BuildTfLiteArray({2, 3});
   IntArrayUniquePtr r = BuildTfLiteArray({3, 3});
@@ -69,7 +87,7 @@ TEST(MergeShapesOrNull, NotSameRank_ReturnsNull) {
   EXPECT_EQ(MergeShapesOrNull(std::move(l), std::move(r)).get(), nullptr);
 }
 
-TEST(MergeShapesOrNull, MergeShapesOrNullSameRankNENull) {
+TEST(MergeShapesOrNull, IncompatibleSameRank1D_ReturnsNull) {
   IntArrayUniquePtr l = BuildTfLiteArray({1});
   IntArrayUniquePtr r = BuildTfLiteArray({2});
   EXPECT_EQ(MergeShapesOrNull(std::move(l), std::move(r)).get(), nullptr);
@@ -109,7 +127,7 @@ TEST(MergeShapesOrNull, BothUnranked_ReturnsUnranked) {
   EXPECT_THAT(MergeShapesOrNull(std::move(l), std::move(r)).get(), DimsAre({}));
 }
 
-TEST(MergeShapesOrNull, UrankedAndStatic1D_ReturnsStatic1D) {
+TEST(MergeShapesOrNull, UnrankedAndStatic1D_ReturnsStatic1D) {
   IntArrayUniquePtr l = BuildTfLiteArray({});
   IntArrayUniquePtr r = BuildTfLiteArray({1});
   EXPECT_THAT(MergeShapesOrNull(std::move(l), std::move(r)).get(),
